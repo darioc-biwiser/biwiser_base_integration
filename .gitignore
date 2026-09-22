@@ -1,0 +1,22 @@
+# Entornos
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea*
+.vscode/
+
+# Configuración de clientes (credenciales). Solo se versionan las plantillas.
+.env
+.env.*
+!.env.example
+!.env.demo
+.env_old
+
+# Logs generados en cada ejecución (se conservan las carpetas)
+error/*
+!error/.gitkeep
+logs/*
+!logs/.gitkeep
