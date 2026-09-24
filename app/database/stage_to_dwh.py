@@ -202,8 +202,8 @@ def traspasar_endpoint(
     STAGE → DWH de un endpoint, en UNA transacción DWH:
 
     1. Crea / ajusta la tabla DWH con los tipos de STAGE.
-    2. Con campo_fecha: DELETE del rango en DWH. Sin campo_fecha:
-       TRUNCATE (carga completa).
+    2. Con campo_fecha: DELETE del rango en DWH. Sin campo_fecha, o con
+       dwh_recarga_completa=True: TRUNCATE y carga de TODO STAGE.
     3. Inserta leyendo STAGE por bloques (DWH_READ_CHUNKSIZE), para no
        cargar tablas grandes completas en memoria.
     4. GRANT SELECT a DWH_GRANT_USER (si está definido).
@@ -216,6 +216,7 @@ def traspasar_endpoint(
     dwh_schema = config.dwh.schema
     tabla = endpoint.tabla
     ejecucion = config.ejecucion
+    por_rango = bool(endpoint.campo_fecha) and not endpoint.dwh_recarga_completa
 
     with engine_stage.connect() as stage_conn:
         if not tabla_existe(stage_conn, stage_schema, tabla):
@@ -234,7 +235,7 @@ def traspasar_endpoint(
         conteo = f'SELECT COUNT(*) FROM "{stage_schema}"."{tabla}"'
         parametros = {}
 
-        if endpoint.campo_fecha:
+        if por_rango:
             condicion = condicion_rango(endpoint.campo_fecha)
             consulta += f" WHERE {condicion}"
             conteo += f" WHERE {condicion}"
@@ -262,7 +263,7 @@ def traspasar_endpoint(
     with engine_dwh.begin() as dwh_conn:
         asegurar_tabla_dwh(dwh_conn, dwh_schema, tabla, columnas, tipos_stage)
 
-        if endpoint.campo_fecha:
+        if por_rango:
             eliminados = dwh_conn.execute(
                 text(
                     f'DELETE FROM "{dwh_schema}"."{tabla}" '
@@ -285,9 +286,11 @@ def traspasar_endpoint(
             dwh_conn.execute(text(f'TRUNCATE TABLE "{dwh_schema}"."{tabla}"'))
 
             log.info(
-                "🗑️ DWH TRUNCATE COMPLETO | tabla=%s | "
-                "motivo=campo_fecha no configurado",
+                "🗑️ DWH TRUNCATE COMPLETO | tabla=%s | motivo=%s",
                 tabla,
+                "dwh_recarga_completa=True"
+                if endpoint.campo_fecha
+                else "campo_fecha no configurado",
             )
 
         with engine_stage.connect() as stage_conn:
@@ -335,7 +338,7 @@ def traspasar_endpoint(
         tabla,
         filas,
         len(columnas),
-        "RANGO" if endpoint.campo_fecha else "COMPLETO",
+        "RANGO" if por_rango else "COMPLETO",
     )
 
     return _resultado(endpoint, "OK", filas=filas, columnas=len(columnas))

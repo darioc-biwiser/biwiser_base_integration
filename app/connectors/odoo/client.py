@@ -1,5 +1,10 @@
+import logging
+
 from app.core.http_client import BaseApiClient, Pagina
 from app.utils import fechas
+
+
+log = logging.getLogger(__name__)
 
 
 class Cliente(BaseApiClient):
@@ -11,7 +16,10 @@ class Cliente(BaseApiClient):
       (necesario si el servidor aloja varias bases).
     - `search_read` con domain/fields/limit/offset/order.
     - Antes de la primera página se consulta `search_count`: con el
-      total conocido, el motor descarga las páginas en paralelo.
+      total conocido, el motor descarga las páginas en paralelo (si
+      falla, se pagina secuencialmente).
+    - Si campo_fecha es una fecha de modificación (write_date), usar
+      dwh_recarga_completa=True en el endpoint (ver core/endpoint.py).
     - Many2one ([id, "nombre"]) se linealiza: campo + campo_name.
     - Odoo devuelve `False` en campos vacíos (texto, fecha, relación):
       se convierten a NULL salvo en campos declarados BOOLEAN.
@@ -62,11 +70,21 @@ class Cliente(BaseApiClient):
         total = None
 
         if contexto.offset == 0:
-            total = self.request(
-                "POST",
-                f"{modelo}/search_count",
-                json={"domain": dominio},
-            ).data
+            # Sin el total el motor pagina de forma secuencial: un
+            # search_count caído no debe hacer fallar todo el endpoint.
+            try:
+                total = self.request(
+                    "POST",
+                    f"{modelo}/search_count",
+                    json={"domain": dominio},
+                ).data
+            except Exception as exc:
+                log.warning(
+                    "⚠️ %s | search_count no disponible, paginación "
+                    "secuencial | error=%s",
+                    endpoint.nombre,
+                    exc,
+                )
 
         payload = {
             "domain": dominio,

@@ -128,17 +128,26 @@ esac
 # ============================================================
 # ARCHIVO DE CONFIGURACIÓN DEL CLIENTE
 # ============================================================
+#
+# Se busca .env.<cliente> tal cual y en minúsculas
+# (Demo -> .env.demo), igual que app/config/settings.py.
+#
+# ============================================================
 
 ENV_FILE=".env.${EMPRESA}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
+    ENV_FILE=".env.$(echo "$EMPRESA" | tr '[:upper:]' '[:lower:]')"
+fi
+
+if [[ ! -f "$ENV_FILE" ]]; then
     echo "ERROR: No existe el archivo de configuración:"
     echo
-    echo "  $ENV_FILE"
+    echo "  .env.${EMPRESA}"
     echo
     echo "Debes crearlo a partir de la plantilla:"
     echo
-    echo "  cp .env.example $SCRIPT_DIR/$ENV_FILE"
+    echo "  cp .env.example $SCRIPT_DIR/.env.${EMPRESA}"
     echo
     exit 1
 fi
@@ -243,6 +252,9 @@ else
     MODULOS_A_EJECUTAR=("$MODULO")
 fi
 
+MESES_AUTOMATICO="$(leer_variable_env MESES_AUTOMATICO)"
+MESES_AUTOMATICO="${MESES_AUTOMATICO:-2}"
+
 
 # ============================================================
 # INTÉRPRETE PYTHON
@@ -297,7 +309,7 @@ if [[ -n "$FECHA_INICIO" && -n "$FECHA_FIN" ]]; then
     echo "Fecha fin    : $FECHA_FIN"
     echo "Modo         : MANUAL"
 else
-    echo "Fecha inicio : AUTOMÁTICA (-MESES_AUTOMATICO meses)"
+    echo "Fecha inicio : AUTOMÁTICA (-${MESES_AUTOMATICO} meses)"
     echo "Fecha fin    : AUTOMÁTICA (hoy)"
     echo "Modo         : AUTOMÁTICO"
 fi

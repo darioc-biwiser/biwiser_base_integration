@@ -294,6 +294,7 @@ EndpointConfig(
     llave_primaria=None,               # None → "id" si viene; o tupla compuesta
     campos_dwh=None,                   # subconjunto de columnas para DWH (None → todas)
     cargar_dwh=True,                   # False → solo STAGE (tablas de apoyo que el BI no usa)
+    dwh_recarga_completa=False,        # True → DWH TRUNCATE + todo STAGE (campo_fecha = write_date)
 
     padre=None, columna_fk=None, campos_padre=None,   # endpoints hijo
     opciones={},                       # parámetros propios del conector (fields/domain de Odoo)
@@ -406,7 +407,11 @@ transacción y con reintento ante cortes de conexión. Además:
 **DWH**, por cada endpoint OK con `cargar_dwh=True` (en una sola transacción, con rollback si
 falla):
 1. crea o ajusta la tabla **con los mismos tipos de STAGE**;
-2. `DELETE` del rango (o `TRUNCATE` si no tiene `campo_fecha`);
+2. `DELETE` del rango (o `TRUNCATE` si no tiene `campo_fecha` o tiene
+   `dwh_recarga_completa=True`: en ese caso se carga todo STAGE). Usar
+   `dwh_recarga_completa=True` cuando `campo_fecha` es una fecha de modificación (ej.
+   `write_date` de Odoo): un registro modificado sale del rango anterior y, como el DWH no
+   tiene llave primaria, el borrado por rango dejaría su versión antigua duplicada;
 3. inserta leyendo STAGE por bloques de `DWH_READ_CHUNKSIZE` (no carga todo en memoria); los
    `NUMERIC` se copian como Decimal, sin pasar por float (sin `49920.0` ni pérdida de precisión);
 4. `GRANT SELECT` a `DWH_GRANT_USER`.

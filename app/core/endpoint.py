@@ -147,6 +147,14 @@ class EndpointConfig:
     # metadata que el BI no necesita).
     cargar_dwh: bool = True
 
+    # True → el DWH se recarga COMPLETO desde STAGE (TRUNCATE + carga)
+    # aunque el endpoint tenga campo_fecha. Usar cuando campo_fecha es
+    # una fecha de modificación (ej. write_date de Odoo): un registro
+    # modificado sale del rango anterior, y el DELETE por rango en el
+    # DWH (que no tiene llave primaria) dejaría la versión antigua
+    # duplicada. En STAGE no pasa porque se hace upsert por llave.
+    dwh_recarga_completa: bool = False
+
     # ------------------------------------------------------------------------
     # ENDPOINT HIJO (encadenado a un padre, ej. documento → detalle)
     # ------------------------------------------------------------------------
