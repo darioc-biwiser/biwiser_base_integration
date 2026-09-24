@@ -84,7 +84,7 @@ class RegistroProcesos:
 
         return self.run_id
 
-    def finalizar(self, estado, errores=0):
+    def finalizar(self, estado, errores=0, advertencias=0):
         fecha_fin = fechas.ahora()
         inicio = self.fecha_inicio or fecha_fin
 
@@ -105,6 +105,11 @@ class RegistroProcesos:
                                     WHEN :errores > 0
                                     THEN ' | ERRORES=' || :errores
                                     ELSE ''
+                                END ||
+                                CASE
+                                    WHEN :advertencias > 0
+                                    THEN ' | ADVERTENCIAS=' || :advertencias
+                                    ELSE ''
                                 END
                         WHERE id = :id
                         """
@@ -114,18 +119,67 @@ class RegistroProcesos:
                         "fecha_fin": fecha_fin,
                         "duracion": duracion,
                         "errores": errores,
+                        "advertencias": advertencias,
                         "id": self.run_id,
                     },
                 )
 
         log.info(
             "🏁 PROCESO FIN | run_id=%s | estado=%s | duracion=%s min | "
-            "errores=%s",
+            "errores=%s | advertencias=%s",
             self.run_id if self.run_id is not None else "-",
             estado,
             duracion,
             errores,
+            advertencias,
         )
+
+    def registrar_advertencia_endpoint(self, endpoint, modulo, advertencias):
+        """
+        Una fila estado='ADVERTENCIA' por endpoint con problemas de datos
+        que no impidieron la carga. Nunca lanza excepción.
+        """
+
+        hora = fechas.ahora()
+        detalle = " || ".join(advertencias)
+
+        accion = (
+            f"ADVERTENCIA ENDPOINT | MODULO={modulo} | "
+            f"CONECTOR={endpoint.conector} | "
+            f"ENDPOINT={endpoint.nombre} | TABLA={endpoint.tabla} | "
+            f"HORA={hora} | "
+            f"RUN_ID={self.run_id if self.run_id is not None else '-'} | "
+            f"CANTIDAD={len(advertencias)} | DETALLE={detalle[:2000]}"
+        )
+
+        if not self.habilitado:
+            log.debug("PROCESOS | (deshabilitado) %s", accion)
+            return
+
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"""
+                        INSERT INTO {self.tabla_sql}
+                            (proceso, accion, estado, fecha, cliente)
+                        VALUES
+                            (:proceso, :accion, 'ADVERTENCIA', :fecha, :cliente)
+                        """
+                    ),
+                    {
+                        "proceso": self.config.proceso_nombre,
+                        "accion": accion,
+                        "fecha": hora,
+                        "cliente": self.config.empresa.upper(),
+                    },
+                )
+
+        except Exception:
+            log.exception(
+                "PROCESOS | ERROR REGISTRANDO ADVERTENCIA | endpoint=%s",
+                endpoint.nombre,
+            )
 
     def registrar_error_endpoint(self, endpoint, modulo, error, hora_error=None):
         """Nunca lanza excepción: un fallo acá no debe cortar la corrida."""

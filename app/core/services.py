@@ -48,6 +48,7 @@ class ContextoEjecucion:
     endpoints_por_nombre: dict
     resultados: list = field(default_factory=list)
     errores: int = 0
+    advertencias: int = 0
     barra: object = None
 
 
@@ -905,6 +906,10 @@ def _procesar_endpoint(ctx, endpoint, intento):
 
     limpiar_stage(ctx, endpoint)
 
+    # Un intento anterior fallido pudo dejar advertencias: se descartan
+    # para contar solo las de la carga que queda.
+    client.tomar_advertencias(endpoint)
+
     cargador = CargadorStage(ctx, endpoint, client)
 
     if endpoint.es_hijo:
@@ -933,6 +938,17 @@ def _procesar_endpoint(ctx, endpoint, intento):
             )
 
     cargador.finalizar()
+
+    advertencias = client.tomar_advertencias(endpoint)
+
+    if advertencias:
+        log.warning(
+            "⚠️ %s | ADVERTENCIAS DE DATOS | cantidad=%s | %s%s",
+            endpoint.nombre,
+            len(advertencias),
+            " || ".join(advertencias[:10]),
+            " || ..." if len(advertencias) > 10 else "",
+        )
 
     archivo_fallidos = registrar_urls_fallidas(ctx, endpoint, fallidos)
     segundos = time.perf_counter() - inicio
@@ -963,6 +979,7 @@ def _procesar_endpoint(ctx, endpoint, intento):
         recibidos=cargador.recibidos,
         fallidos=len(fallidos),
         archivo_fallidos=str(archivo_fallidos) if archivo_fallidos else None,
+        advertencias=advertencias,
         segundos=segundos,
     )
 
@@ -979,6 +996,7 @@ def _resultado_endpoint(endpoint, estado, **datos):
         "recibidos": 0,
         "fallidos": 0,
         "archivo_fallidos": None,
+        "advertencias": [],
         "segundos": 0.0,
         "dwh": "-",
     }
@@ -1086,6 +1104,23 @@ def _avanzar_modulo(ctx):
         ctx.barra.update(len(ctx.resultados))
 
 
+def _registrar_advertencias(ctx, endpoint, resultado):
+    """
+    Endpoint OK con problemas de datos (ej. textos cargados como NULL):
+    una fila ADVERTENCIA en procesos. No cuenta como error.
+    """
+
+    if resultado["estado"] != "OK" or not resultado["advertencias"]:
+        return
+
+    ctx.procesos.registrar_advertencia_endpoint(
+        endpoint=endpoint,
+        modulo=ctx.modulo,
+        advertencias=resultado["advertencias"],
+    )
+    ctx.advertencias += 1
+
+
 def _ejecutar_arbol(ctx, endpoint, hijos_de):
     resultado = ejecutar_endpoint(ctx, endpoint)
     ctx.resultados.append((endpoint, resultado))
@@ -1093,6 +1128,8 @@ def _ejecutar_arbol(ctx, endpoint, hijos_de):
 
     if _evaluar_resultado(ctx, endpoint, resultado):
         ctx.errores += 1
+
+    _registrar_advertencias(ctx, endpoint, resultado)
 
     for hijo in hijos_de.get(endpoint.nombre, []):
         if resultado["estado"] == "OK":
@@ -1168,17 +1205,20 @@ def log_resumen(ctx):
     for endpoint, resultado in ctx.resultados:
         icono = ICONOS_ESTADO.get(resultado["estado"], "❔")
 
-        if resultado["estado"] == "OK" and resultado["fallidos"]:
+        if resultado["estado"] == "OK" and (
+            resultado["fallidos"] or resultado["advertencias"]
+        ):
             icono = "⚠️"
 
         log.info(
             "%s %-28s | estado=%-8s | stage=%-8s | fallidos=%-4s | "
-            "dwh=%-15s | %.1fs",
+            "advertencias=%-4s | dwh=%-15s | %.1fs",
             icono,
             endpoint.nombre,
             resultado["estado"],
             resultado["registros"],
             resultado["fallidos"],
+            len(resultado["advertencias"]),
             resultado["dwh"],
             resultado["segundos"],
         )
@@ -1233,6 +1273,7 @@ def ejecutar_integracion(
             "dwh": [],
             "errores": 0,
             "endpoints": [],
+            "advertencias": 0,
             "estado": "SIN ENDPOINTS",
         }
 
@@ -1360,7 +1401,7 @@ def ejecutar_integracion(
         log.info(
             "🏁 INTEGRACIÓN FIN | empresa=%s | modulo=%s | stage=%s | "
             "endpoints=%s | errores_api_stage=%s | errores_dwh=%s | "
-            "errores_total=%s",
+            "errores_total=%s | endpoints_con_advertencias=%s",
             config.empresa,
             modulo,
             total_stage,
@@ -1368,6 +1409,7 @@ def ejecutar_integracion(
             errores_api_stage,
             ctx.errores - errores_api_stage,
             ctx.errores,
+            ctx.advertencias,
         )
 
         return {
@@ -1376,6 +1418,7 @@ def ejecutar_integracion(
             "stage": total_stage,
             "dwh": resultados_dwh,
             "errores": ctx.errores,
+            "advertencias": ctx.advertencias,
             "endpoints": [resultado for _e, resultado in ctx.resultados],
         }
 

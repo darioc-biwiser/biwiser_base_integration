@@ -83,8 +83,13 @@ class Cliente(BaseApiClient):
                             solo numérica queda NUMERIC y una mixta
                             (ej. "#R") queda TEXT sin ".0".
     - opciones["numericos"]: columnas donde además se convierte el texto
-      con formato numérico ("13.124.300" → 13124300). Un texto que no es
-      número queda NULL y se advierte en el log.
+      con formato numérico ("13.124.300" → 13124300).
+    - Advertencias (quedan en procesos con estado ADVERTENCIA, ver
+      BaseApiClient.advertir):
+        * texto que no es número en una columna de `numericos` → NULL;
+        * texto que no es fecha en una columna DATE / DATETIME → NULL;
+        * columna de la hoja sin tipo declarado en `tipos` (el tipo se
+          infiere y la carga podría fallar el día que cambien los datos).
     - Rate limit de Smartsheet: 300 requests/minuto por token.
     """
 
@@ -144,6 +149,8 @@ class Cliente(BaseApiClient):
         }
         metadata_hoja = _metadata_hoja(hoja)
 
+        self._advertir_columnas_sin_tipo(endpoint, hoja["columns"], columnas)
+
         items = [
             self._fila_a_registro(endpoint, fila, columnas, metadata_hoja, numericos)
             for fila in hoja.get("rows") or []
@@ -153,6 +160,26 @@ class Cliente(BaseApiClient):
             items=items,
             total=self.extraer_total(endpoint, respuesta),
         )
+
+    def _advertir_columnas_sin_tipo(self, endpoint, definiciones, columnas):
+        """
+        Columnas de la hoja que no están en `tipos`: su tipo se infiere de
+        los datos de la primera carga. Checkbox se omite (siempre boolean).
+        """
+
+        declarados = set(endpoint.tipos_stage)
+        titulos = {c["id"]: c.get("title") for c in definiciones}
+
+        for column_id, (nombre, tipo, _contacto) in columnas.items():
+            if nombre in declarados or tipo in TIPOS_BOOLEANOS:
+                continue
+
+            self.advertir(
+                endpoint,
+                f"COLUMNA SIN TIPO DECLARADO | columna={nombre} | "
+                f"titulo={titulos.get(column_id)!r} | tipo_smartsheet={tipo} | "
+                "declararla en tipos de endpoints.py",
+            )
 
     # ------------------------------------------------------------------
     # DICCIONARIO DE COLUMNAS
@@ -252,16 +279,23 @@ class Cliente(BaseApiClient):
                 numero = _texto_a_numero(valor)
 
                 if numero is None:
-                    log.warning(
-                        "⚠️ %s | VALOR NO NUMÉRICO → NULL | fila=%s | "
-                        "columna=%s | valor=%r",
-                        endpoint.nombre,
-                        fila.get("rowNumber"),
-                        nombre,
-                        valor,
+                    self.advertir(
+                        endpoint,
+                        f"VALOR NO NUMÉRICO → NULL | fila={fila.get('rowNumber')} | "
+                        f"columna={nombre} | valor={valor!r}",
                     )
 
                 valor = numero
+
+            elif tipo in TIPOS_FECHA | TIPOS_FECHA_HORA and isinstance(valor, str):
+                # _convertir_valor devuelve el texto original si no es una
+                # fecha válida: insertarlo haría fallar toda la hoja.
+                self.advertir(
+                    endpoint,
+                    f"VALOR NO ES FECHA → NULL | fila={fila.get('rowNumber')} | "
+                    f"columna={nombre} | valor={valor!r}",
+                )
+                valor = None
 
             registro[nombre] = valor
 

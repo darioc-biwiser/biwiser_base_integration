@@ -314,6 +314,8 @@ echo
 #   0   -> FINALIZADO CORRECTAMENTE / SIN ENDPOINTS / empresa inactiva
 #   1   -> error crítico o de configuración
 #   2   -> FINALIZADO CON ERRORES (algún endpoint falló)
+#   3   -> FINALIZADO CON ADVERTENCIAS (datos cargados, con valores
+#          descartados o columnas sin tipo; ver procesos estado=ADVERTENCIA)
 #   130 -> interrumpido (Ctrl+C)
 #
 # Un módulo con error NO detiene a los siguientes.
@@ -321,6 +323,7 @@ echo
 # ============================================================
 
 RESULTADO_GENERAL=0
+HUBO_ADVERTENCIAS=0
 INICIO_TOTAL=$(date +%s)
 
 for MOD in "${MODULOS_A_EJECUTAR[@]}"; do
@@ -343,6 +346,10 @@ for MOD in "${MODULOS_A_EJECUTAR[@]}"; do
     case $CODIGO in
         0)
             echo "✅ Módulo $MOD finalizado."
+            ;;
+        3)
+            HUBO_ADVERTENCIAS=1
+            echo "⚠️  Módulo $MOD finalizado CON ADVERTENCIAS de datos (revisar procesos estado=ADVERTENCIA)."
             ;;
         2)
             RESULTADO_GENERAL=1
@@ -372,7 +379,9 @@ DURACION_TOTAL=$(( $(date +%s) - INICIO_TOTAL ))
 
 echo "============================================================"
 
-if [[ "$RESULTADO_GENERAL" -eq 0 ]]; then
+if [[ "$RESULTADO_GENERAL" -eq 0 && "$HUBO_ADVERTENCIAS" -eq 1 ]]; then
+    echo "⚠️  MÓDULOS FINALIZADOS CON ADVERTENCIAS DE DATOS (la carga se completó)"
+elif [[ "$RESULTADO_GENERAL" -eq 0 ]]; then
     echo "✅ TODOS LOS MÓDULOS FINALIZADOS CORRECTAMENTE"
 else
     echo "⚠️  PROCESO FINALIZADO CON ERRORES"

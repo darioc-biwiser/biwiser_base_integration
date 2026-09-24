@@ -140,6 +140,7 @@ def main():
 
     run_iniciado = False
     errores = 0
+    advertencias = 0
     codigo_salida = 0
 
     try:
@@ -163,16 +164,20 @@ def main():
         )
 
         errores = resultado.get("errores", 0)
+        advertencias = resultado.get("advertencias", 0)
 
         if resultado.get("estado") == "SIN ENDPOINTS":
             estado = "SIN ENDPOINTS"
         elif errores > 0:
             estado = "FINALIZADO CON ERRORES"
             codigo_salida = 2
+        elif advertencias > 0:
+            estado = "FINALIZADO CON ADVERTENCIAS"
+            codigo_salida = 3
         else:
             estado = "FINALIZADO CORRECTAMENTE"
 
-        procesos.finalizar(estado, errores=errores)
+        procesos.finalizar(estado, errores=errores, advertencias=advertencias)
 
     except KeyboardInterrupt:
         log.error("🛑 EJECUCIÓN INTERRUMPIDA POR EL USUARIO")

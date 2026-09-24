@@ -262,7 +262,9 @@ En Linux, la primera vez: `chmod +x run_main.sh` (o ejecutarlo con `bash run_mai
 Contrato interno (igual que Bsale): `python main.py <cliente> <MODULO> <inicio|''> <fin|''> [ENDPOINT]`.
 
 Códigos de salida de `main.py`: `0` correcto (o sin endpoints / cliente inactivo), `1` error
-crítico o de configuración, `2` finalizado con errores, `130` interrumpido con Ctrl+C.
+crítico o de configuración, `2` finalizado con errores, `3` finalizado con advertencias de datos
+(la carga se completó), `130` interrumpido con Ctrl+C. `run_main.sh` informa las advertencias pero
+termina con `0` si no hubo errores.
 
 ---
 
@@ -441,12 +443,28 @@ DDL en `sql/procesos_dev.sql`. Se configura con `PS_PROCESOS_SCHEMA` y `PS_PROCE
 
 | Fila | `estado` | `accion` |
 |---|---|---|
-| Una por ejecución (cliente + módulo) | `EN EJECUCION` → `FINALIZADO CORRECTAMENTE` / `FINALIZADO CON ERRORES` / `SIN ENDPOINTS` / `ERROR_CRITICO` / `INTERRUMPIDO` | `AUTOMATICO\|MANUAL [\| ENDPOINT=X] \| RANGO=inicio..fin \| MODULO=M [\| ERRORES=n]` |
-| Una por endpoint con problemas | `ERROR` | `ERROR ENDPOINT \| MODULO \| CONECTOR \| ENDPOINT \| RUTA \| TABLA \| HORA \| RUN_ID \| ERROR=...` |
+| Una por ejecución (cliente + módulo) | `EN EJECUCION` → `FINALIZADO CORRECTAMENTE` / `FINALIZADO CON ERRORES` / `FINALIZADO CON ADVERTENCIAS` / `SIN ENDPOINTS` / `ERROR_CRITICO` / `INTERRUMPIDO` | `AUTOMATICO\|MANUAL [\| ENDPOINT=X] \| RANGO=inicio..fin \| MODULO=M [\| ERRORES=n] [\| ADVERTENCIAS=n]` |
+| Una por endpoint que falló | `ERROR` | `ERROR ENDPOINT \| MODULO \| CONECTOR \| ENDPOINT \| RUTA \| TABLA \| HORA \| RUN_ID \| ERROR=...` |
+| Una por endpoint cargado con problemas de datos | `ADVERTENCIA` | `ADVERTENCIA ENDPOINT \| MODULO \| CONECTOR \| ENDPOINT \| TABLA \| HORA \| RUN_ID \| CANTIDAD=n \| DETALLE=...` |
 
 Además se registran `fecha`, `fecha_fin` y `tiempo_ejecucion` (minutos) en la zona horaria del
 cliente. Cuentan como error: un endpoint que agotó sus reintentos, uno con requests fallidos, un
 hijo omitido por falla del padre y un error en el traspaso a DWH.
+
+**Advertencias**: problemas de datos que NO impiden la carga (el endpoint queda OK y se traspasa
+a DWH). Las genera cada conector con `self.advertir(endpoint, "detalle")` (thread-safe, detalles
+repetidos se cuentan una vez); al terminar el endpoint se deja una fila `ADVERTENCIA` con la
+cantidad y el detalle, el resumen muestra `advertencias=n` y la corrida termina
+`FINALIZADO CON ADVERTENCIAS` si no hubo errores. Ejemplo (Smartsheet):
+`VALOR NO NUMÉRICO → NULL | fila=2 | columna=neto | valor='N/A'`.
+
+```sql
+-- Seguimiento de errores y advertencias de un cliente
+SELECT id, estado, fecha, accion
+FROM public.procesos_dev
+WHERE cliente = 'DEMO' AND estado IN ('ERROR', 'ADVERTENCIA')
+ORDER BY id DESC;
+```
 
 ---
 
@@ -498,6 +516,8 @@ class Cliente(BaseApiClient):
    Si la API no sigue el patrón REST paginado, se sobrescriben solo los hooks necesarios:
    `obtener_pagina` (ej. Odoo usa POST), `extraer_items` (Frankfurter, Open-Meteo),
    `extraer_total` (JSONPlaceholder, header), `construir_filtro_fecha` o `preparar_registro`.
+   Para dejar trazabilidad de datos descartados o dudosos sin hacer fallar la carga, usar
+   `self.advertir(endpoint, "detalle")` (ver sección 10).
 3. Registrar el conector en `app/connectors/registry.py` → `CONECTORES_DISPONIBLES`.
 4. Habilitarlo en el `.env` del cliente: `CONECTORES=...,miapi` + `MIAPI_URL`, `MIAPI_TOKEN`.
 

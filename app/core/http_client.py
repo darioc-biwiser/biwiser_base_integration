@@ -148,6 +148,11 @@ class BaseApiClient:
 
         self._limitador = RateLimiter(api.max_requests_por_minuto)
 
+        # Advertencias de datos por endpoint (ver `advertir`). Se escriben
+        # desde los workers, por eso el lock.
+        self._advertencias = {}
+        self._lock_advertencias = threading.Lock()
+
         self.configurar_sesion(self.session)
 
     # ------------------------------------------------------------------
@@ -269,6 +274,34 @@ class BaseApiClient:
             return None
 
         return _a_entero(_valor_por_ruta(respuesta.data, ruta))
+
+    # ------------------------------------------------------------------
+    # ADVERTENCIAS DE DATOS
+    # ------------------------------------------------------------------
+
+    def advertir(self, endpoint, detalle):
+        """
+        Registra un problema de DATOS que no impide cargar el endpoint
+        (ej. un texto en una columna numérica que se cargó como NULL, una
+        columna nueva sin tipo declarado).
+
+        Al terminar el endpoint, services.py las junta y deja UNA fila
+        ADVERTENCIA en procesos con la cantidad y el detalle; la corrida
+        termina FINALIZADO CON ADVERTENCIAS (si no hubo errores).
+
+        Es thread-safe (se llama desde los workers de descarga). Detalles
+        repetidos (ej. una página descargada dos veces por reintento) se
+        cuentan una vez.
+        """
+
+        with self._lock_advertencias:
+            self._advertencias.setdefault(endpoint.nombre, {})[str(detalle)] = None
+
+    def tomar_advertencias(self, endpoint):
+        """Devuelve y limpia las advertencias acumuladas del endpoint."""
+
+        with self._lock_advertencias:
+            return list(self._advertencias.pop(endpoint.nombre, {}))
 
     def preparar_registro(self, endpoint, registro):
         """

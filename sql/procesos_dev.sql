@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS public.procesos_dev
     proceso          TEXT        NOT NULL,   -- PROCESO_NOMBRE (ej. BSALE, BASE_INTEGRATION)
     accion           TEXT,                   -- modo | endpoint | rango | módulo | errores / detalle del error
     estado           TEXT        NOT NULL,   -- EN EJECUCION, FINALIZADO CORRECTAMENTE, FINALIZADO CON ERRORES,
-                                             -- SIN ENDPOINTS, ERROR_CRITICO, INTERRUMPIDO, ERROR (fila por endpoint)
+                                             -- FINALIZADO CON ADVERTENCIAS, SIN ENDPOINTS, ERROR_CRITICO,
+                                             -- INTERRUMPIDO, ERROR / ADVERTENCIA (fila por endpoint)
     fecha            TIMESTAMP   NOT NULL,   -- inicio (hora local del cliente)
     cliente          TEXT,                   -- EMPRESA en mayúsculas
     fecha_fin        TIMESTAMP,
